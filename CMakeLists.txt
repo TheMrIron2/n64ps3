@@ -16,6 +16,7 @@ add_library(n64ps3
     src/core/log.c
     src/core/runtime.c
     src/os/os_common.c
+    src/os/os_event.c
     src/pad/pad_common.c
     src/audio/audio_common.c
     src/pi/pi_common.c
@@ -42,3 +43,6 @@ target_link_libraries(os_queue PRIVATE n64ps3)
 
 add_executable(gfx_task samples/gfx_task/main.c)
 target_link_libraries(gfx_task PRIVATE n64ps3)
+
+add_executable(vi_retrace samples/vi_retrace/main.c)
+target_link_libraries(vi_retrace PRIVATE n64ps3)

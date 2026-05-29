@@ -1,5 +1,5 @@
-#ifndef N64PS3_H
-#define N64PS3_H
+#ifndef ULTRA64_H
+#define ULTRA64_H
 
 #include "n64ps3/ultra64.h"
 
