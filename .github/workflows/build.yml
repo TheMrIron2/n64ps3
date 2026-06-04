@@ -1,0 +1,30 @@
+name: Host CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run hello_runtime
+        run: ./build/hello_runtime
+
+      - name: Run os_queue
+        run: ./build/os_queue
+
+      - name: Run gfx_task
+        run: ./build/gfx_task
+
+      - name: Run vi_retrace
+        run: ./build/vi_retrace
