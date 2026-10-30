@@ -1,0 +1,26 @@
+!!ARBfp1.0
+OPTION NV_fragment_program2;
+#profile fp40
+#program main
+#semantic texture0 : TEXUNIT0
+#var float4 vertexColor : $vin.COLOR : COL0 : 0 : 1
+#var float2 texcoord : $vin.TEXCOORD0 : TEX0 : 1 : 1
+#var float4 color : $vout.COLOR : COL : 2 : 1
+#var sampler2D texture0 : TEXUNIT0 : texunit 0 : -1 : 1
+# RGB = sqrt(texture.rgb * vertexColor.rgb), alpha = texture.a * vertexColor.a.
+# This approximates the N64 VI transfer modeled by the PSP sqrt color LUT.
+# RSX COLOR aliases hardware R0. Keep sampled color and intermediate results
+# in R1: cgcomp does not relocate fp40 temporaries away from output registers.
+# Keep this source free of blank lines; cgcomp's assembly parser crashes on them.
+TEMP R1;
+OUTPUT oCol = result.color;
+TEX  R1, fragment.texcoord[0], texture[0], 2D;
+MULR R1, R1, fragment.color.primary;
+RSQR R1.x, R1.x;
+RCPR oCol.x, R1.x;
+RSQR R1.y, R1.y;
+RCPR oCol.y, R1.y;
+RSQR R1.z, R1.z;
+RCPR oCol.z, R1.z;
+MOVR oCol.w, R1.w;
+END

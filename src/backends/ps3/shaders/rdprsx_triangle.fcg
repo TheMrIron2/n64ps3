@@ -1,8 +1,0 @@
-uniform sampler2D texture0 : TEXUNIT0;
-
-void main(float4 vertexColor : COLOR,
-          float2 texcoord : TEXCOORD0,
-          out float4 color : COLOR)
-{
-    color = tex2D(texture0, texcoord) * vertexColor;
-}
