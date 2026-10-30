@@ -15,7 +15,7 @@
 
 #define RDPRSX_FRAMEBUFFER_COUNT 2
 #define RDPRSX_MAX_TRIANGLES 16384U
-#define RDPRSX_MAX_TEXTURES 64U
+#define RDPRSX_MAX_TEXTURES 256U
 #define RDPRSX_MAX_TEXTURE_DIMENSION 256U
 #define RDPRSX_COMMAND_BUFFER_SIZE 0x80000
 #define RDPRSX_HOST_IO_SIZE (32U * 1024U * 1024U)
@@ -50,6 +50,7 @@ typedef struct RdprsxTexture {
     u16 height;
     u8 wrap_s;
     u8 wrap_t;
+    u8 source_bytes_per_texel;
     void *data;
     gcmTexture descriptor;
 } RdprsxTexture;
@@ -76,6 +77,7 @@ static void *s_triangle_indices;
 static u32 *s_triangle_modes;
 static u8 *s_triangle_textures;
 static u8 *s_triangle_blends;
+static u8 *s_triangle_filters;
 static RdprsxTexture s_textures[RDPRSX_MAX_TEXTURES];
 static u32 s_texture_count;
 static u32 s_triangle_vertex_offset;
@@ -139,7 +141,8 @@ static void rdprsx_log_texture_inputs(void)
 
     for (texture = 1U; texture < s_texture_count; texture++) {
         const RdprsxTexture *entry = &s_textures[texture];
-        u32 source_bytes = (u32)entry->width * entry->height * 2U;
+        u32 source_bytes = (u32)entry->width * entry->height *
+                           entry->source_bytes_per_texel;
         u32 upload_bytes = entry->descriptor.pitch * entry->descriptor.height;
 
         source_hash = rdprsx_hash_bytes(source_hash, entry->source,
@@ -237,6 +240,8 @@ static void rdprsx_release(void)
     s_triangle_textures = NULL;
     free(s_triangle_blends);
     s_triangle_blends = NULL;
+    free(s_triangle_filters);
+    s_triangle_filters = NULL;
     free(s_host_io);
     s_host_io = NULL;
     s_triangle_vertex_program = NULL;
@@ -266,6 +271,7 @@ static u8 rdprsx_map_wrap_mode(u8 n64_mode)
 
 static int rdprsx_init_texture(RdprsxTexture *texture,
                               const u8 *source,
+                              u8 source_bytes_per_texel,
                               u16 width,
                               u16 height,
                               u8 wrap_s,
@@ -275,7 +281,9 @@ static int rdprsx_init_texture(RdprsxTexture *texture,
     u32 row;
 
     memset(texture, 0, sizeof(*texture));
-    if (!source || width == 0U || height == 0U ||
+    if (!source || (source_bytes_per_texel != 2U &&
+                    source_bytes_per_texel != 4U) ||
+        width == 0U || height == 0U ||
         width > RDPRSX_MAX_TEXTURE_DIMENSION ||
         height > RDPRSX_MAX_TEXTURE_DIMENSION) {
         return -1;
@@ -292,16 +300,30 @@ static int rdprsx_init_texture(RdprsxTexture *texture,
         u8 *destination = (u8 *)texture->data + row * pitch;
 
         for (column = 0; column < width; column++) {
-            const u8 *pixel = source + (row * width + column) * 2U;
-            u16 rgba = (u16)(((u16)pixel[0] << 8) | pixel[1]);
-            u32 red = (rgba >> 11) & 31U;
-            u32 green = (rgba >> 6) & 31U;
-            u32 blue = (rgba >> 1) & 31U;
-            u32 alpha = (rgba & 1U) ? 255U : 0U;
+            const u8 *pixel = source + (row * width + column) *
+                                       source_bytes_per_texel;
+            u32 red;
+            u32 green;
+            u32 blue;
+            u32 alpha;
+            if (source_bytes_per_texel == 2U) {
+                u16 rgba = (u16)(((u16)pixel[0] << 8) | pixel[1]);
+                u32 red5 = (rgba >> 11) & 31U;
+                u32 green5 = (rgba >> 6) & 31U;
+                u32 blue5 = (rgba >> 1) & 31U;
+
+                red = (red5 << 3) | (red5 >> 2);
+                green = (green5 << 3) | (green5 >> 2);
+                blue = (blue5 << 3) | (blue5 >> 2);
+                alpha = (rgba & 1U) ? 255U : 0U;
+            } else {
+                red = pixel[0];
+                green = pixel[1];
+                blue = pixel[2];
+                alpha = pixel[3];
+            }
             u32 argb = (alpha << 24) |
-                       (((red << 3) | (red >> 2)) << 16) |
-                       (((green << 3) | (green >> 2)) << 8) |
-                       ((blue << 3) | (blue >> 2));
+                       (red << 16) | (green << 8) | blue;
 
             ((u32 *)destination)[column] = argb;
         }
@@ -312,6 +334,7 @@ static int rdprsx_init_texture(RdprsxTexture *texture,
     texture->height = height;
     texture->wrap_s = wrap_s;
     texture->wrap_t = wrap_t;
+    texture->source_bytes_per_texel = source_bytes_per_texel;
     texture->descriptor.format = GCM_TEXTURE_FORMAT_LIN |
                                  GCM_TEXTURE_FORMAT_A8R8G8B8;
     /* This field is the number of available mip levels in RSX texture
@@ -346,15 +369,19 @@ static u8 rdprsx_get_texture(const N64ps3GfxF3dex1Vertex *vertex)
 {
     u32 i;
 
-    if (!vertex->texture_enabled || !vertex->texture_rgba16) {
+    if (!vertex->texture_enabled || !vertex->texture_data ||
+        (vertex->texture_bytes_per_texel != 2U &&
+         vertex->texture_bytes_per_texel != 4U)) {
         return 0;
     }
     for (i = 1U; i < s_texture_count; i++) {
         const RdprsxTexture *texture = &s_textures[i];
 
-        if (texture->source == vertex->texture_rgba16 &&
+        if (texture->source == vertex->texture_data &&
             texture->width == vertex->texture_width &&
             texture->height == vertex->texture_height &&
+            texture->source_bytes_per_texel ==
+                vertex->texture_bytes_per_texel &&
             texture->wrap_s == vertex->texture_wrap_s &&
             texture->wrap_t == vertex->texture_wrap_t) {
             return (u8)i;
@@ -367,14 +394,16 @@ static u8 rdprsx_get_texture(const N64ps3GfxF3dex1Vertex *vertex)
         return 0;
     }
     if (rdprsx_init_texture(&s_textures[s_texture_count],
-                            vertex->texture_rgba16,
+                            vertex->texture_data,
+                            vertex->texture_bytes_per_texel,
                             vertex->texture_width,
                             vertex->texture_height,
                             vertex->texture_wrap_s,
                             vertex->texture_wrap_t) != 0) {
         n64ps3_log(N64PS3_LOG_ERROR,
-                   "rdprsx: failed to create RGBA16 texture %ux%u",
-                   vertex->texture_width, vertex->texture_height);
+                   "rdprsx: failed to create texture %ux%u (%u-byte texels)",
+                   vertex->texture_width, vertex->texture_height,
+                   vertex->texture_bytes_per_texel);
         return 0;
     }
     return (u8)s_texture_count++;
@@ -432,8 +461,9 @@ static int rdprsx_init_triangle(void)
     s_triangle_modes = (u32 *)malloc(RDPRSX_MAX_TRIANGLES * sizeof(u32));
     s_triangle_textures = (u8 *)malloc(RDPRSX_MAX_TRIANGLES * sizeof(u8));
     s_triangle_blends = (u8 *)malloc(RDPRSX_MAX_TRIANGLES * sizeof(u8));
+    s_triangle_filters = (u8 *)malloc(RDPRSX_MAX_TRIANGLES * sizeof(u8));
     if (!s_triangle_vertices || !s_triangle_indices || !s_triangle_modes ||
-        !s_triangle_textures || !s_triangle_blends) {
+        !s_triangle_textures || !s_triangle_blends || !s_triangle_filters) {
         n64ps3_log(N64PS3_LOG_ERROR, "rdprsx: display-list geometry allocation failed");
         return -1;
     }
@@ -444,7 +474,8 @@ static int rdprsx_init_triangle(void)
     }
 
     s_texture_count = 0;
-    if (rdprsx_init_texture(&s_textures[0], white_rgba16, 1, 1, 2, 2) != 0) {
+    if (rdprsx_init_texture(&s_textures[0], white_rgba16, 2U,
+                            1, 1, 2, 2) != 0) {
         n64ps3_log(N64PS3_LOG_ERROR, "rdprsx: white fallback texture allocation failed");
         return -1;
     }
@@ -499,6 +530,7 @@ static int rdprsx_collect_triangle(void *user_data,
     s_triangle_modes[s_triangle_count] = a->geometry_mode;
     s_triangle_textures[s_triangle_count] = rdprsx_get_texture(a);
     s_triangle_blends[s_triangle_count] = a->blend_enabled;
+    s_triangle_filters[s_triangle_count] = a->texture_point_filter;
     s_triangle_count++;
     return 0;
 }
@@ -573,6 +605,7 @@ static void rdprsx_draw_triangles(void)
         u32 geometry_mode = s_triangle_modes[i];
         u8 texture_index = s_triangle_textures[i];
         u8 blend_enabled = s_triangle_blends[i];
+        u8 point_filter = s_triangle_filters[i];
         u32 batch_end = i + 1U;
         u32 cull_mode = geometry_mode &
             (N64PS3_GFX_F3DEX1_GEOMETRY_CULL_FRONT |
@@ -587,15 +620,20 @@ static void rdprsx_draw_triangles(void)
         while (batch_end < s_triangle_count &&
                s_triangle_modes[batch_end] == geometry_mode &&
                s_triangle_textures[batch_end] == texture_index &&
-               s_triangle_blends[batch_end] == blend_enabled) {
+               s_triangle_blends[batch_end] == blend_enabled &&
+               s_triangle_filters[batch_end] == point_filter) {
             batch_end++;
         }
 
         rsxLoadTexture(s_context, 0, &s_textures[texture_index].descriptor);
         rsxTextureControl(s_context, 0, GCM_TRUE, 0, 0,
                           GCM_TEXTURE_MAX_ANISO_1);
-        rsxTextureFilter(s_context, 0, 0, GCM_TEXTURE_LINEAR,
-                         GCM_TEXTURE_LINEAR, 0);
+        rsxTextureFilter(s_context, 0, 0,
+                         point_filter ? GCM_TEXTURE_NEAREST
+                                      : GCM_TEXTURE_LINEAR,
+                         point_filter ? GCM_TEXTURE_NEAREST
+                                      : GCM_TEXTURE_LINEAR,
+                         0);
         rsxTextureWrapMode(s_context, 0,
                            rdprsx_map_wrap_mode(s_textures[texture_index].wrap_s),
                            rdprsx_map_wrap_mode(s_textures[texture_index].wrap_t),

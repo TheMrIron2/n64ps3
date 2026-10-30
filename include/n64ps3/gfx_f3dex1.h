@@ -27,7 +27,8 @@ typedef struct N64ps3GfxF3dex1Vertex {
     u8 color[4];
     s8 normal[3];
     u32 geometry_mode;
-    const u8 *texture_rgba16;
+    const u8 *texture_data;
+    u8 texture_bytes_per_texel;
     u16 texture_width;
     u16 texture_height;
     u16 texture_scale_s;
@@ -41,6 +42,7 @@ typedef struct N64ps3GfxF3dex1Vertex {
     u8 texture_shift_s;
     u8 texture_shift_t;
     u8 texture_enabled;
+    u8 texture_point_filter;
     u8 blend_enabled;
     float clip_x;
     float clip_y;
@@ -93,14 +95,16 @@ typedef int (*N64ps3GfxF3dex1TriangleCallback)(
     const N64ps3GfxF3dex1Vertex *c);
 
 /* Decodes F3DEX1 display-list flow, MTX/POPMTX, VTX, TRI1/TRI2, MOVEWORD
- * segments, light state, RGBA16 texture blocks, SETOTHERMODE_L FORCE_BL, and
- * RDP SETFILLCOLOR/FILLRECT. Fill rectangles use the 320x240 logical viewport
+ * segments, light state, RGBA16/RGBA32 texture blocks, SETOTHERMODE_L FORCE_BL,
+ * SETOTHERMODE_H texture filtering, and RDP SETFILLCOLOR/FILLRECT. Fill
+ * rectangles use the 320x240 logical viewport
  * and are emitted as two screen-space triangles. Other fixed-width commands
  * are counted and skipped.
  * Vertices passed to the callback are decoder-owned and valid only for the
  * duration of that call; clip coordinates contain the matrix-transformed vertex
  * position, geometry_mode contains the RSP mode, and blend_enabled reflects
- * the active RDP FORCE_BL bit from SETOTHERMODE_L.
+ * the active RDP FORCE_BL bit from SETOTHERMODE_L and texture_point_filter
+ * reflects G_TF_POINT in SETOTHERMODE_H.
  * When G_LIGHTING is enabled, color contains the computed ambient/directional
  * RGB and the original signed normal bytes are available in normal[]. Texture
  * data points into task memory and remains valid through the callback. Texture

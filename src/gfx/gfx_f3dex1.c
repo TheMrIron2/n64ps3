@@ -12,6 +12,7 @@
 #define F3DEX1_OP_POPMTX 0xbdU
 #define F3DEX1_OP_MOVEWORD 0xbcU
 #define F3DEX1_OP_SETOTHERMODE_L 0xb9U
+#define F3DEX1_OP_SETOTHERMODE_H 0xe3U
 #define F3DEX1_OP_ENDDL 0xb8U
 #define F3DEX1_OP_CLEARGEOMETRYMODE 0xb6U
 #define F3DEX1_OP_SETGEOMETRYMODE 0xb7U
@@ -75,6 +76,7 @@ typedef struct N64ps3GfxF3dex1Decoder {
     u32 modelview_stack_depth;
     u32 geometry_mode;
     u32 other_mode_l;
+    u32 other_mode_h;
     u32 light_count;
     u32 texture_image_address;
     u32 texture_image_format;
@@ -531,7 +533,10 @@ static N64ps3GfxF3dex1Status f3dex1_emit_triangle(
         triangle_vertices[i].geometry_mode = decoder->geometry_mode;
         triangle_vertices[i].blend_enabled =
             (u8)((decoder->other_mode_l & F3DEX1_RDP_FORCE_BLEND) != 0U);
-        triangle_vertices[i].texture_rgba16 = NULL;
+        triangle_vertices[i].texture_point_filter =
+            (u8)((decoder->other_mode_h & (3U << 12)) == 0U);
+        triangle_vertices[i].texture_data = NULL;
+        triangle_vertices[i].texture_bytes_per_texel = 0U;
         triangle_vertices[i].texture_enabled = 0;
         if (decoder->texture_enabled && decoder->texture_loaded &&
             decoder->texture_data &&
@@ -540,7 +545,9 @@ static N64ps3GfxF3dex1Status f3dex1_emit_triangle(
             const N64ps3GfxF3dex1Tile *tile =
                 &decoder->texture_tiles[decoder->texture_tile];
 
-            triangle_vertices[i].texture_rgba16 = decoder->texture_data;
+            triangle_vertices[i].texture_data = decoder->texture_data;
+            triangle_vertices[i].texture_bytes_per_texel =
+                decoder->texture_image_size == 2U ? 2U : 4U;
             triangle_vertices[i].texture_width = tile->width;
             triangle_vertices[i].texture_height = tile->height;
             triangle_vertices[i].texture_scale_s = decoder->texture_scale_s;
@@ -738,6 +745,24 @@ static N64ps3GfxF3dex1Status f3dex1_decode_list(
             continue;
         }
 
+        if (opcode == F3DEX1_OP_SETOTHERMODE_H) {
+            u32 shift = (w0 >> 8) & 0xffU;
+            u32 length = w0 & 0xffU;
+
+            if (length != 0U && shift < 32U && length <= 32U - shift) {
+                u32 mask = length == 32U
+                    ? 0xffffffffU
+                    : ((1U << length) - 1U) << shift;
+
+                decoder->other_mode_h =
+                    (decoder->other_mode_h & ~mask) | (w1 & mask);
+            } else {
+                decoder->stats->unsupported_command_count++;
+                decoder->stats->unsupported_opcode_counts[opcode]++;
+            }
+            continue;
+        }
+
         if (opcode == F3DEX1_OP_MOVEMEM) {
             N64ps3GfxF3dex1Status status =
                 f3dex1_handle_light(decoder, w0, w1);
@@ -792,8 +817,10 @@ static N64ps3GfxF3dex1Status f3dex1_decode_list(
             int address_valid;
 
             if (decoder->texture_image_format == 0U &&
-                decoder->texture_image_size == 2U && tile->format == 0U &&
-                tile->size == 2U) {
+                (decoder->texture_image_size == 2U ||
+                 decoder->texture_image_size == 3U) &&
+                tile->format == 0U &&
+                tile->size == decoder->texture_image_size) {
                 address = f3dex1_segment_address(
                     decoder, decoder->texture_image_address, &address_valid);
                 decoder->texture_data = address_valid
@@ -827,7 +854,9 @@ static N64ps3GfxF3dex1Status f3dex1_decode_list(
                 ? (u16)((lower_t - upper_t) / 4U + 1U) : 0U;
             if (tile_index == decoder->texture_tile && decoder->texture_enabled &&
                 decoder->texture_loaded &&
-                (u32)tile->width * tile->height * 2U > decoder->texture_load_bytes) {
+                (u32)tile->width * tile->height *
+                    (decoder->texture_image_size == 2U ? 2U : 4U) >
+                    decoder->texture_load_bytes) {
                 decoder->texture_loaded = 0;
                 decoder->texture_data = NULL;
             }
