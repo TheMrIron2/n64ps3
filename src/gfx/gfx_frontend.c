@@ -8,11 +8,12 @@ void n64ps3_gfx_register_renderer(const N64ps3GfxRenderer *renderer)
     g_renderer = renderer;
 }
 
-void n64ps3_gfx_init(void)
+int n64ps3_gfx_init(void)
 {
     if (g_renderer && g_renderer->init) {
-        g_renderer->init();
+        return g_renderer->init();
     }
+    return 0;
 }
 
 void n64ps3_gfx_shutdown(void)

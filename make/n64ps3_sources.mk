@@ -18,7 +18,8 @@ N64PS3_COMMON_C_FILES := \
 	$(N64PS3_ROOT)/src/audio/audio_common.c \
 	$(N64PS3_ROOT)/src/pi/pi_common.c \
 	$(N64PS3_ROOT)/src/vi/vi_common.c \
-	$(N64PS3_ROOT)/src/gfx/gfx_frontend.c
+	$(N64PS3_ROOT)/src/gfx/gfx_frontend.c \
+	$(N64PS3_ROOT)/src/gfx/gfx_f3dex1.c
 
 N64PS3_GFX_BACKEND_C_FILES ?= \
 	$(N64PS3_ROOT)/src/backends/pc/rdpnull.c

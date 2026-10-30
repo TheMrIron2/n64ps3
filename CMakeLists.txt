@@ -22,6 +22,7 @@ add_library(n64ps3
     src/pi/pi_common.c
     src/vi/vi_common.c
     src/gfx/gfx_frontend.c
+    src/gfx/gfx_f3dex1.c
     ${N64PS3_GFX_BACKEND_SOURCE}
 )
 
@@ -29,6 +30,10 @@ target_include_directories(n64ps3
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(n64ps3 PUBLIC m)
+endif()
 
 target_compile_options(n64ps3
     PRIVATE

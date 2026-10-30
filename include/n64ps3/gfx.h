@@ -12,9 +12,17 @@ typedef enum N64ps3GfxTaskKind {
     N64PS3_GFX_TASK_RSP_UCODE = 1
 } N64ps3GfxTaskKind;
 
+typedef const void *(*N64ps3GfxAddressResolver)(void *user_data,
+                                                u32 n64_address,
+                                                u32 required_size_bytes,
+                                                u32 *available_size_bytes);
+
 typedef struct N64ps3GfxTask {
     N64ps3GfxTaskKind kind;
     const void *dram_base;
+    u32 dram_size_bytes;
+    N64ps3GfxAddressResolver address_resolver;
+    void *address_resolver_user_data;
     const void *display_list;
     u32 display_list_size_bytes;
     const void *ucode;
@@ -32,7 +40,7 @@ typedef struct N64ps3GfxRenderer {
 } N64ps3GfxRenderer;
 
 void n64ps3_gfx_register_renderer(const N64ps3GfxRenderer *renderer);
-void n64ps3_gfx_init(void);
+int n64ps3_gfx_init(void);
 void n64ps3_gfx_shutdown(void);
 void n64ps3_gfx_begin_frame(void);
 void n64ps3_gfx_submit_task(const N64ps3GfxTask *task);

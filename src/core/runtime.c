@@ -2,6 +2,10 @@
 #include "n64ps3/gfx.h"
 #include "n64ps3/log.h"
 
+#if defined(N64PS3_PS3)
+const N64ps3GfxRenderer *n64ps3_rdprsx_renderer(void);
+#endif
+
 static N64ps3Config g_config;
 static int g_initialized;
 
@@ -18,8 +22,16 @@ int n64ps3_runtime_init(const N64ps3Config *config)
                g_config.save_root ? g_config.save_root : "(null)",
                g_config.vi_refresh_hz);
 
+#if defined(N64PS3_PS3)
+    n64ps3_gfx_register_renderer(n64ps3_rdprsx_renderer());
+#else
     n64ps3_gfx_register_renderer(n64ps3_rdpnull_renderer());
-    n64ps3_gfx_init();
+#endif
+    if (n64ps3_gfx_init() != 0) {
+        n64ps3_log(N64PS3_LOG_ERROR, "graphics backend initialization failed");
+        n64ps3_gfx_shutdown();
+        return -1;
+    }
 
     g_initialized = 1;
     return 0;

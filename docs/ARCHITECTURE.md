@@ -20,7 +20,8 @@ Start with the runtime pieces that source ports want immediately:
 - ROM/asset reads
 - audio sample submission
 - VI mode/swap signalling
-- graphics task submission as an opaque validation path
+- graphics task submission with optional bounded RDRAM mapping and a portable
+  F3DEX1 display-list, matrix, vertex-transform, and triangle-decoding path
 
 Do not start with full RDP accuracy. The first useful milestone is getting a small N64-style sample to submit OS messages, poll input, and hand a display-list-shaped packet to a backend.
 
