@@ -4,10 +4,6 @@
 
 static N64ps3ViMode g_mode = { 320, 240, 60 };
 static u8 g_vi_black = 0;
-<<<<<<< Updated upstream
-=======
-static OSMesgQueue *g_vi_event_queue = 0;
->>>>>>> Stashed changes
 static u32 g_vi_retrace_count = 1;
 static u32 g_vi_retrace_accum = 0;
 
@@ -42,11 +38,8 @@ void n64ps3_vi_raise_retrace_for_host(void)
     }
 
     g_vi_retrace_accum = 0;
-<<<<<<< Updated upstream
-=======
     /* osViSetEvent registered this queue with OS_EVENT_VI. Deliver once through
      * the common event binding rather than enqueueing the same message twice. */
->>>>>>> Stashed changes
     n64ps3_os_raise_event(OS_EVENT_VI);
 }
 
@@ -68,10 +61,6 @@ void osViSwapBuffer(void *framebuffer)
 
 void osViSetEvent(OSMesgQueue *queue, OSMesg message, u32 retrace_count)
 {
-<<<<<<< Updated upstream
-=======
-    g_vi_event_queue = queue;
->>>>>>> Stashed changes
     g_vi_retrace_count = retrace_count ? retrace_count : 1u;
     g_vi_retrace_accum = 0;
 
