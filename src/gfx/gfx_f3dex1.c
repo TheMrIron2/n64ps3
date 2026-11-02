@@ -1031,6 +1031,8 @@ N64ps3GfxF3dex1Status n64ps3_gfx_decode_f3dex1(
 
     memset(&decoder, 0, sizeof(decoder));
     memset(&local_stats, 0, sizeof(local_stats));
+    /* Port default: smooth surface filtering. Text lists set G_TF_POINT. */
+    decoder.other_mode_h = 0x00002000U;
     decoder.task = task;
     decoder.triangle_callback = triangle_callback;
     decoder.user_data = user_data;
