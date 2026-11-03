@@ -83,6 +83,11 @@ static u32 s_texture_count;
 static u32 s_triangle_vertex_offset;
 static u32 s_triangle_index_offset;
 static u32 s_triangle_count;
+static u32 s_scissor_x;
+static u32 s_scissor_y;
+static u32 s_scissor_width;
+static u32 s_scissor_height;
+static u32 s_scissor_valid;
 static int s_flip_pending;
 #if N64PS3_RSX_TEXTURE_DIAGNOSTICS
 static u32 s_flip_wait_iterations;
@@ -559,7 +564,37 @@ static void rdprsx_draw_triangles(void)
                     GCM_SRC_ALPHA, GCM_ONE_MINUS_SRC_ALPHA);
     rsxSetViewport(s_context, 0, 0, (u16)s_width, (u16)s_height,
                    0.0f, 1.0f, scale, offset);
-    rsxSetScissor(s_context, 0, 0, (u16)s_width, (u16)s_height);
+    {
+        s32 scissor_x = 0;
+        s32 scissor_y = 0;
+        s32 scissor_w = (s32)s_width;
+        s32 scissor_h = (s32)s_height;
+
+        if (s_scissor_valid) {
+            scissor_x = (s32)((s_scissor_x * s_width) / 320U);
+            scissor_y = (s32)((s_scissor_y * s_height) / 240U);
+            scissor_w = (s32)((s_scissor_width * s_width) / 320U);
+            scissor_h = (s32)((s_scissor_height * s_height) / 240U);
+        }
+        if (scissor_x < 0) {
+            scissor_x = 0;
+        } else if (scissor_x > (s32)s_width) {
+            scissor_x = (s32)s_width;
+        }
+        if (scissor_y < 0) {
+            scissor_y = 0;
+        } else if (scissor_y > (s32)s_height) {
+            scissor_y = (s32)s_height;
+        }
+        if (scissor_w <= 0 || scissor_x + scissor_w > (s32)s_width) {
+            scissor_w = (s32)s_width - scissor_x;
+        }
+        if (scissor_h <= 0 || scissor_y + scissor_h > (s32)s_height) {
+            scissor_h = (s32)s_height - scissor_y;
+        }
+        rsxSetScissor(s_context, (u16)scissor_x, (u16)scissor_y,
+                      (u16)scissor_w, (u16)scissor_h);
+    }
     for (i = 0; i < 8; i++) {
         rsxSetViewportClip(s_context, (u8)i, (u16)s_width, (u16)s_height);
     }
@@ -797,6 +832,11 @@ static void rdprsx_submit_task(const N64ps3GfxTask *task)
                    (int)status, stats.command_count, stats.triangle_count);
         return;
     }
+    s_scissor_valid = stats.scissor_valid;
+    s_scissor_x = stats.scissor_x;
+    s_scissor_y = stats.scissor_y;
+    s_scissor_width = stats.scissor_width;
+    s_scissor_height = stats.scissor_height;
     if (stats.unsupported_command_count && !warned_unsupported) {
         n64ps3_log(N64PS3_LOG_WARN,
                    "rdprsx: skipped %u F3DEX1/RDP state commands; matrices and RDP state are not translated",

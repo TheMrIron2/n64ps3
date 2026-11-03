@@ -26,6 +26,8 @@
 #define F3DEX1_OP_LOADBLOCK 0xf3U
 #define F3DEX1_OP_SETTILE 0xf5U
 #define F3DEX1_OP_SETTIMG 0xfdU
+#define F3DEX1_OP_SETSCISSOR 0xedU
+#define F3DEX1_OP_SETFOGCOLOR 0xf8U
 #define F3DEX1_MTX_PROJECTION 0x04U
 #define F3DEX1_MTX_LOAD 0x02U
 #define F3DEX1_MTX_PUSH 0x01U
@@ -33,6 +35,8 @@
 #define F3DEX1_MATRIX_BYTES 64U
 #define F3DEX1_MOVEWORD_SEGMENT 0x06U
 #define F3DEX1_MOVEWORD_NUMLIGHT 0x02U
+#define F3DEX1_MOVEWORD_CLIP 0x04U
+#define F3DEX1_MOVEWORD_FOG 0x08U
 #define F3DEX1_LIGHTING_MODE N64PS3_GFX_F3DEX1_GEOMETRY_LIGHTING
 #define F3DEX1_LIGHT_BASE 0x86U
 #define F3DEX1_LIGHT_BYTES 16U
@@ -84,6 +88,8 @@ typedef struct N64ps3GfxF3dex1Decoder {
     u32 texture_image_width;
     u32 texture_load_bytes;
     u32 fill_color;
+    s16 fog_mul;
+    s16 fog_offset;
     const u8 *texture_data;
     N64ps3GfxF3dex1Tile texture_tiles[8];
     u16 texture_scale_s;
@@ -299,11 +305,18 @@ static N64ps3GfxF3dex1Status f3dex1_handle_light(
         decoder->light_colors[slot][0] = raw[0];
         decoder->light_colors[slot][1] = raw[1];
         decoder->light_colors[slot][2] = raw[2];
+        /* SF64 pre-rotates light vectors by the camera before gSPLight, so
+         * they are already view-space: they are dotted with the
+         * modelview-transformed normal, not transformed again here. This
+         * matches n64psp's directional-light batch and Starship's
+         * interpreter (normal matrix * normal, raw light direction). */
         raw_direction[0] = (float)(s8)raw[8];
         raw_direction[1] = (float)(s8)raw[9];
         raw_direction[2] = (float)(s8)raw[10];
-        f3dex1_transform_direction(decoder->modelview, raw_direction,
-                                   decoder->light_directions[slot]);
+        f3dex1_normalize_vector(raw_direction);
+        decoder->light_directions[slot][0] = raw_direction[0];
+        decoder->light_directions[slot][1] = raw_direction[1];
+        decoder->light_directions[slot][2] = raw_direction[2];
     }
     decoder->stats->light_command_count++;
     return N64PS3_GFX_F3DEX1_OK;
@@ -562,6 +575,39 @@ static N64ps3GfxF3dex1Status f3dex1_emit_triangle(
             triangle_vertices[i].texture_shift_t = tile->shift_t;
             triangle_vertices[i].texture_enabled = 1;
         }
+        if ((decoder->other_mode_l >> 30) == 3U && decoder->fog_mul != 0) {
+            float w = triangle_vertices[i].clip_w;
+            float fog = 0.0f;
+            int factor;
+
+            /* Distance-anchored fog: recover the canonical N64 NDC from w so
+             * the curve does not move when the projection near plane changes. */
+            if (w > 0.0f) {
+                const float near_plane = 10.0f;
+                const float far_plane = 12800.0f;
+                const float m22 = (near_plane + far_plane) /
+                                  (near_plane - far_plane);
+                const float m32 = (2.0f * near_plane * far_plane) /
+                                  (near_plane - far_plane);
+                float ndc = -m22 + m32 / w;
+
+                fog = ndc * (float)decoder->fog_mul +
+                      (float)decoder->fog_offset;
+            }
+            if (fog < 0.0f) {
+                fog = 0.0f;
+            } else if (fog > 255.0f) {
+                fog = 255.0f;
+            }
+            factor = (int)fog;
+            /* Black-fog approximation; title fog colour is (0,0,0). */
+            triangle_vertices[i].color[0] =
+                (u8)((triangle_vertices[i].color[0] * (255 - factor)) / 255);
+            triangle_vertices[i].color[1] =
+                (u8)((triangle_vertices[i].color[1] * (255 - factor)) / 255);
+            triangle_vertices[i].color[2] =
+                (u8)((triangle_vertices[i].color[2] * (255 - factor)) / 255);
+        }
     }
 
     return f3dex1_submit_triangle(decoder, triangle_vertices);
@@ -721,6 +767,12 @@ static N64ps3GfxF3dex1Status f3dex1_decode_list(
                 }
             } else if (index == F3DEX1_MOVEWORD_NUMLIGHT && offset == 0) {
                 f3dex1_handle_num_lights(decoder, w1);
+            } else if (index == F3DEX1_MOVEWORD_FOG && offset == 0) {
+                decoder->fog_mul = (s16)(w1 >> 16);
+                decoder->fog_offset = (s16)(w1 & 0xffffU);
+                decoder->stats->fog_position_command_count++;
+            } else if (index == F3DEX1_MOVEWORD_CLIP) {
+                decoder->stats->clip_ratio_command_count++;
             } else {
                 decoder->stats->unsupported_command_count++;
             }
@@ -865,6 +917,33 @@ static N64ps3GfxF3dex1Status f3dex1_decode_list(
 
         if (opcode == F3DEX1_OP_LOADSYNC || opcode == F3DEX1_OP_PIPESYNC ||
             opcode == F3DEX1_OP_TILESYNC) {
+            continue;
+        }
+
+        if (opcode == F3DEX1_OP_SETSCISSOR) {
+            u32 ulx = (w0 >> 12) & 0xfffU;
+            u32 uly = w0 & 0xfffU;
+            u32 lrx = (w1 >> 12) & 0xfffU;
+            u32 lry = w1 & 0xfffU;
+            u32 left = ulx / 4U;
+            u32 top = uly / 4U;
+            u32 right = lrx / 4U;
+            u32 bottom = lry / 4U;
+
+            decoder->stats->scissor_x = left;
+            decoder->stats->scissor_y = top;
+            decoder->stats->scissor_width = right > left ? right - left : 0U;
+            decoder->stats->scissor_height = bottom > top ? bottom - top : 0U;
+            decoder->stats->scissor_valid =
+                (decoder->stats->scissor_width != 0U &&
+                 decoder->stats->scissor_height != 0U)
+                    ? 1U
+                    : 0U;
+            continue;
+        }
+
+        if (opcode == F3DEX1_OP_SETFOGCOLOR) {
+            decoder->stats->fog_color_command_count++;
             continue;
         }
 

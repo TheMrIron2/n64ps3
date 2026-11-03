@@ -84,6 +84,14 @@ typedef struct N64ps3GfxF3dex1Stats {
     u32 textured_triangle_count;
     u32 fill_color_command_count;
     u32 fill_rectangle_count;
+    u32 scissor_x;
+    u32 scissor_y;
+    u32 scissor_width;
+    u32 scissor_height;
+    u32 scissor_valid;
+    u32 fog_color_command_count;
+    u32 fog_position_command_count;
+    u32 clip_ratio_command_count;
     u32 max_depth;
     u32 unsupported_opcode_counts[256];
 } N64ps3GfxF3dex1Stats;
