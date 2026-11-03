@@ -174,7 +174,10 @@ static void rdprsx_set_render_target(u32 index)
     gcmSurface surface;
 
     memset(&surface, 0, sizeof(surface));
-    surface.colorFormat = GCM_SURFACE_X8R8G8B8;
+    /* Keep an alpha channel on the render surface for SRC_ALPHA blending.
+     * RPCS3's XRGB surface path corrupts overlapping translucent engine glows.
+     * ARGB has the same byte layout/pitch; the XRGB scanout ignores its alpha. */
+    surface.colorFormat = GCM_SURFACE_A8R8G8B8;
     surface.colorTarget = GCM_SURFACE_TARGET_0;
     surface.colorLocation[0] = GCM_LOCATION_RSX;
     surface.colorOffset[0] = s_framebuffers[index].offset;
@@ -770,7 +773,7 @@ static int rdprsx_init(void)
     s_current_framebuffer = 0;
     rdprsx_set_render_target(s_current_framebuffer);
     s_ready = 1;
-    n64ps3_log(N64PS3_LOG_INFO, "rdprsx ready: %ux%u, two XRGB framebuffers",
+    n64ps3_log(N64PS3_LOG_INFO, "rdprsx ready: %ux%u, two ARGB render buffers, XRGB scanout",
                s_width, s_height);
     return 0;
 }
@@ -810,7 +813,7 @@ static void rdprsx_begin_frame(void)
      * previous frame's draw and flip have consumed them before reusing them. */
     rdprsx_wait_for_previous_flip();
 
-    /* The XRGB scanout surface should present the original black title clear. */
+    /* Clear the ARGB render surface to opaque black for the XRGB scanout. */
     rsxSetClearColor(s_context, 0xff000000U);
     s_triangle_count = 0;
     rsxSetClearDepthStencil(s_context, 0xffffff00U);
